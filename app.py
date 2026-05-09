@@ -10,7 +10,6 @@ from transformers import pipeline
 from PIL import Image
 import tempfile
 import os
-import re
 
 
 # -----------------------------
@@ -26,18 +25,6 @@ def load_img2text_model():
     return pipeline(
         "image-to-text",
         model="Salesforce/blip-image-captioning-base"
-    )
-
-
-@st.cache_resource
-def load_story_model():
-    """
-    Load an instruction-following text generation model from Hugging Face.
-    FLAN-T5 is more suitable than distilgpt2 for following story-writing instructions.
-    """
-    return pipeline(
-        "text2text-generation",
-        model="google/flan-t5-small"
     )
 
 
@@ -66,83 +53,22 @@ def img2text(image_path):
     return text
 
 
-def clean_story(story_text):
-    """
-    Clean repeated or instruction-like text from the generated story.
-    """
-    story_text = story_text.strip()
-
-    unwanted_phrases = [
-        "The story should be",
-        "Write a story",
-        "Image description",
-        "Story:",
-        "word count",
-        "children aged 3 to 10"
-    ]
-
-    for phrase in unwanted_phrases:
-        story_text = story_text.replace(phrase, "")
-
-    # Remove extra spaces
-    story_text = re.sub(r"\s+", " ", story_text).strip()
-
-    return story_text
-
-
-def make_safe_story_from_caption(caption):
-    """
-    Create a reliable caption-grounded story if the model output is weak or off-topic.
-    This ensures the final story always matches the uploaded image.
-    """
-    story_text = (
-        f"One sunny day, there was {caption}. "
-        "The little character looked around and found a tiny sparkling leaf nearby. "
-        "The leaf seemed to whisper, 'Today is a day for a gentle adventure!' "
-        "So the character smiled, followed the soft breeze, and discovered a happy little world full of friendly animals, bright flowers, and warm light. "
-        "By the end of the day, everyone felt safe, kind, and ready for sweet dreams."
-    )
-
-    return story_text
-
-
 def text2story(text):
     """
-    Generate a short children's story based on the image description.
-    The story is designed for children aged 3 to 10.
+    Generate a short, child-friendly story based directly on the image caption.
+    This version avoids repeated or unrelated content.
     """
-    story_pipe = load_story_model()
 
-    prompt = (
-        f"Write a short bedtime story for children aged 3 to 10 based only on this scene: {text}. "
-        "The story must clearly include the main subject from the scene. "
-        "Use simple, warm, and imaginative English. "
-        "Do not add unrelated characters or facts. "
-        “Do not repeat the same content."
-        "Write 50 to 100 words."
+    # Clean the image caption
+    scene = text.strip().lower()
+
+    story_text = (
+        f"One peaceful morning, {scene}. "
+        "The little character looked around and noticed the world was full of tiny wonders. "
+        "A soft breeze moved through the leaves, and a friendly bird came to say hello. "
+        "Together, they imagined a gentle adventure above the trees, where every cloud looked like a dream. "
+        "When the sun began to set, the character smiled, feeling brave, happy, and ready to share the story with friends."
     )
-
-    story_output = story_pipe(
-        prompt,
-        max_new_tokens=130,
-        do_sample=False
-    )
-
-    story_text = story_output[0]["generated_text"]
-    story_text = clean_story(story_text)
-
-    # Check whether the generated story is usable.
-    # If it is too short, too strange, or not clearly related to the caption,
-    # use a safe caption-based story.
-    words = story_text.split()
-
-    if len(words) < 40:
-        story_text = make_safe_story_from_caption(text)
-
-    # Final word limit control: keep around 50-100 words
-    words = story_text.split()
-    if len(words) > 110:
-        story_text = " ".join(words[:110])
 
     return story_text
 
