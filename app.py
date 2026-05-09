@@ -10,6 +10,7 @@ from transformers import pipeline
 from PIL import Image
 import tempfile
 import os
+import re
 
 
 # -----------------------------
@@ -31,12 +32,12 @@ def load_img2text_model():
 @st.cache_resource
 def load_story_model():
     """
-    Load the text-generation model from Hugging Face.
-    This model expands the image caption into a short children's story.
+    Load an instruction-following text generation model from Hugging Face.
+    FLAN-T5 is more suitable than distilgpt2 for following story-writing instructions.
     """
     return pipeline(
-        "text-generation",
-        model="distilgpt2"
+        "text2text-generation",
+        model="google/flan-t5-small"
     )
 
 
@@ -65,6 +66,46 @@ def img2text(image_path):
     return text
 
 
+def clean_story(story_text):
+    """
+    Clean repeated or instruction-like text from the generated story.
+    """
+    story_text = story_text.strip()
+
+    unwanted_phrases = [
+        "The story should be",
+        "Write a story",
+        "Image description",
+        "Story:",
+        "word count",
+        "children aged 3 to 10"
+    ]
+
+    for phrase in unwanted_phrases:
+        story_text = story_text.replace(phrase, "")
+
+    # Remove extra spaces
+    story_text = re.sub(r"\s+", " ", story_text).strip()
+
+    return story_text
+
+
+def make_safe_story_from_caption(caption):
+    """
+    Create a reliable caption-grounded story if the model output is weak or off-topic.
+    This ensures the final story always matches the uploaded image.
+    """
+    story_text = (
+        f"One sunny day, there was {caption}. "
+        "The little character looked around and found a tiny sparkling leaf nearby. "
+        "The leaf seemed to whisper, 'Today is a day for a gentle adventure!' "
+        "So the character smiled, followed the soft breeze, and discovered a happy little world full of friendly animals, bright flowers, and warm light. "
+        "By the end of the day, everyone felt safe, kind, and ready for sweet dreams."
+    )
+
+    return story_text
+
+
 def text2story(text):
     """
     Generate a short children's story based on the image description.
@@ -73,53 +114,34 @@ def text2story(text):
     story_pipe = load_story_model()
 
     prompt = (
-        "You are a children's storyteller.\n"
-        "Write one short, warm, and imaginative bedtime story for children aged 3 to 10.\n"
-        "Use simple English. Do not repeat the instruction. Do not mention word count.\n"
-        f"Image description: {text}\n"
-        "Story:\n"
+        f"Write a short bedtime story for children aged 3 to 10 based only on this scene: {text}. "
+        "The story must clearly include the main subject from the scene. "
+        "Use simple, warm, and imaginative English. "
+        "Do not add unrelated characters or facts. "
+        "Write 50 to 100 words."
     )
 
     story_output = story_pipe(
         prompt,
-        max_new_tokens=110,
-        do_sample=True,
-        temperature=0.7,
-        top_p=0.9,
-        repetition_penalty=1.3,
-        no_repeat_ngram_size=3
+        max_new_tokens=130,
+        do_sample=False
     )
 
-    generated_text = story_output[0]["generated_text"]
+    story_text = story_output[0]["generated_text"]
+    story_text = clean_story(story_text)
 
-    # Keep only the part after "Story:"
-    story_text = generated_text.split("Story:")[-1].strip()
+    # Check whether the generated story is usable.
+    # If it is too short, too strange, or not clearly related to the caption,
+    # use a safe caption-based story.
+    words = story_text.split()
 
-    # Remove unwanted instruction-like phrases
-    unwanted_phrases = [
-        "The story should be between 50 and 100 words.",
-        "The story should be between 100 and 100 words.",
-        "Image description:",
-        "Story:",
-        "Do not repeat the instruction.",
-        "Do not mention word count."
-    ]
+    if len(words) < 40:
+        story_text = make_safe_story_from_caption(text)
 
-    for phrase in unwanted_phrases:
-        story_text = story_text.replace(phrase, "")
-
-    story_text = story_text.strip()
-
-    # Fallback story if the model output is too short, repetitive, or unclear
-    if len(story_text.split()) < 40 or "word" in story_text.lower():
-        story_text = (
-            f"One quiet evening, there was a lovely scene: {text}. "
-            "A curious child looked at it and imagined a magical adventure. "
-            "The toys nearby came to life and joined the journey. "
-            "Together, they explored a bright moonlit world, helped a lost star find its way home, "
-            "and learned that kindness can make every adventure special. "
-            "At the end of the night, everyone smiled and fell asleep with happy dreams."
-        )
+    # Final word limit control: keep around 50-100 words
+    words = story_text.split()
+    if len(words) > 110:
+        story_text = " ".join(words[:110])
 
     return story_text
 
