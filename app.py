@@ -118,6 +118,7 @@ def text2story(text):
         "The story must clearly include the main subject from the scene. "
         "Use simple, warm, and imaginative English. "
         "Do not add unrelated characters or facts. "
+        “Do not repeat the same content."
         "Write 50 to 100 words."
     )
 
